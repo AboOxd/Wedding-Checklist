@@ -358,8 +358,7 @@ async function loadFromSupabase() {
 
     const { data, error } = await supabaseClient
       .from('tasks')
-      .select('*')
-      .order('id', { ascending: true });
+      .select('*');
 
     if (error) {
       console.error('❌ Load error:', error);
