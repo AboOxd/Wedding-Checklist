@@ -262,6 +262,9 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 // ============================================================
 //  SUPABASE CLIENT WITH EXPLICIT HEADERS
+//  NOTE: renamed to supabaseClient — the loaded library already
+//  defines a global called "supabase", so reusing that name for
+//  our own const crashed the whole script (SyntaxError).
 // ============================================================
 
 // Create a custom fetch that includes the API key in headers
@@ -282,7 +285,7 @@ const customFetch = async (url, options = {}) => {
   return response;
 };
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   global: {
     fetch: customFetch
   }
@@ -352,8 +355,8 @@ async function loadFromSupabase() {
   try {
     setStatus('Loading from cloud...', 'saving');
     console.log('📤 Fetching tasks from Supabase...');
-    
-    const { data, error } = await supabase
+
+    const { data, error } = await supabaseClient
       .from('tasks')
       .select('*')
       .order('id', { ascending: true });
@@ -377,8 +380,8 @@ async function loadFromSupabase() {
     if (!data || data.length === 0) {
       setStatus('📝 Creating default tasks...', 'saving');
       console.log('📝 No tasks found. Creating defaults...');
-      
-      const { error: insertError } = await supabase
+
+      const { error: insertError } = await supabaseClient
         .from('tasks')
         .insert(DEFAULT_ITEMS);
 
@@ -391,7 +394,7 @@ async function loadFromSupabase() {
 
       console.log('✅ Default tasks created! Reloading...');
       setStatus('✅ Default tasks created!', 'saved');
-      
+
       setTimeout(() => loadFromSupabase(), 500);
       return true;
     }
@@ -421,7 +424,7 @@ async function saveToSupabase(taskList) {
     isSaving = true;
     setStatus('💾 Saving...', 'saving');
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await supabaseClient
       .from('tasks')
       .delete()
       .neq('id', '');
@@ -429,7 +432,7 @@ async function saveToSupabase(taskList) {
     if (deleteError) throw deleteError;
 
     if (taskList.length > 0) {
-      const { error: insertError } = await supabase
+      const { error: insertError } = await supabaseClient
         .from('tasks')
         .insert(taskList);
 
@@ -460,7 +463,7 @@ function scheduleSave() {
 // ============================================================
 
 function setupRealtime() {
-  const channel = supabase.channel('tasks-realtime')
+  const channel = supabaseClient.channel('tasks-realtime')
     .on(
       'postgres_changes',
       {
