@@ -261,10 +261,32 @@ const SUPABASE_URL = 'https://jejkssldcqfxkwoaqdfr.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Implamtzc2xkY3FmeGt3b2FxZGZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc1OTIzNTUsImV4cCI6MjEwMzE2ODM1NX0.DrsNBv5T247gg-VdRDAjeN1tMa5LBKljD3ig-MFlsHc';
 
 // ============================================================
-//  SUPABASE CLIENT
+//  SUPABASE CLIENT WITH EXPLICIT HEADERS
 // ============================================================
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Create a custom fetch that includes the API key in headers
+const customFetch = async (url, options = {}) => {
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    ...options.headers
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers
+  });
+
+  return response;
+};
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  global: {
+    fetch: customFetch
+  }
+});
 
 // ============================================================
 //  APP STATE
@@ -323,22 +345,26 @@ whoSelect.addEventListener('change', () => {
 });
 
 // ============================================================
-//  SUPABASE — LOAD DATA (with automatic default creation)
+//  SUPABASE — LOAD DATA (with explicit headers)
 // ============================================================
 
 async function loadFromSupabase() {
   try {
     setStatus('Loading from cloud...', 'saving');
+    console.log('📤 Fetching tasks from Supabase...');
+    
     const { data, error } = await supabase
       .from('tasks')
       .select('*')
       .order('id', { ascending: true });
 
     if (error) {
-      console.error('Load error:', error);
-      setStatus('⚠️ Error loading: ' + error.message, 'error');
+      console.error('❌ Load error:', error);
+      setStatus('⚠️ Error: ' + error.message, 'error');
       return false;
     }
+
+    console.log('✅ Data received:', data);
 
     const saved = localStorage.getItem('wedding-checklist-categories');
     if (saved) {
@@ -350,24 +376,22 @@ async function loadFromSupabase() {
     // If no data exists, create default tasks
     if (!data || data.length === 0) {
       setStatus('📝 Creating default tasks...', 'saving');
-      console.log('No tasks found. Creating defaults...');
+      console.log('📝 No tasks found. Creating defaults...');
       
       const { error: insertError } = await supabase
         .from('tasks')
         .insert(DEFAULT_ITEMS);
 
       if (insertError) {
-        console.error('Insert error:', insertError);
+        console.error('❌ Insert error:', insertError);
         setStatus('⚠️ Could not create tasks: ' + insertError.message, 'error');
-        // Try to reload
-        setTimeout(() => loadFromSupabase(), 2000);
+        setTimeout(() => loadFromSupabase(), 3000);
         return false;
       }
 
-      console.log('Default tasks created! Reloading...');
+      console.log('✅ Default tasks created! Reloading...');
       setStatus('✅ Default tasks created!', 'saved');
       
-      // Reload to get the new data
       setTimeout(() => loadFromSupabase(), 500);
       return true;
     }
@@ -382,7 +406,7 @@ async function loadFromSupabase() {
     setStatus('✅ Connected & synced live', 'saved');
     return true;
   } catch (e) {
-    console.error('Load failed:', e);
+    console.error('❌ Load failed:', e);
     setStatus('⚠️ Load failed: ' + e.message, 'error');
     return false;
   }
@@ -397,7 +421,6 @@ async function saveToSupabase(taskList) {
     isSaving = true;
     setStatus('💾 Saving...', 'saving');
 
-    // Clear existing tasks
     const { error: deleteError } = await supabase
       .from('tasks')
       .delete()
@@ -405,7 +428,6 @@ async function saveToSupabase(taskList) {
 
     if (deleteError) throw deleteError;
 
-    // Insert all tasks
     if (taskList.length > 0) {
       const { error: insertError } = await supabase
         .from('tasks')
@@ -417,7 +439,7 @@ async function saveToSupabase(taskList) {
     setStatus('✅ Saved to cloud', 'saved');
     return true;
   } catch (e) {
-    console.error('Save failed:', e);
+    console.error('❌ Save failed:', e);
     setStatus('⚠️ Save failed: ' + e.message, 'error');
     return false;
   } finally {
@@ -448,12 +470,12 @@ function setupRealtime() {
       },
       (payload) => {
         if (isSaving) return;
-        console.log('Realtime update:', payload);
+        console.log('🔄 Realtime update:', payload);
         loadFromSupabase();
       }
     )
     .subscribe((status) => {
-      console.log('Realtime status:', status);
+      console.log('📡 Realtime status:', status);
       if (status === 'SUBSCRIBED') {
         setStatus('✅ Live sync active', 'saved');
       }
