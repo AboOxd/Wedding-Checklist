@@ -368,11 +368,33 @@ async function loadFromSupabase() {
 
     console.log('✅ Data received:', data);
 
-    const saved = localStorage.getItem('wedding-checklist-categories');
-    if (saved) {
-      try { categories = JSON.parse(saved); } catch(e) { categories = DEFAULT_CATEGORIES; }
+    let catData = null;
+    try {
+      const catRes = await supabaseClient.from('categories').select('*');
+      if (catRes.error) throw catRes.error;
+      catData = catRes.data;
+    } catch (e) {
+      console.error('❌ Category load error:', e);
+    }
+
+    if (!catData || catData.length === 0) {
+      const defaultCatRows = DEFAULT_CATEGORIES.map((name, i) => ({ id: 'c' + i, name }));
+      const { error: catInsertError } = await supabaseClient.from('categories').insert(defaultCatRows);
+      if (catInsertError) {
+        console.error('❌ Category insert error:', catInsertError);
+        categories = DEFAULT_CATEGORIES;
+      } else {
+        categories = defaultCatRows.map(r => r.name);
+      }
     } else {
-      categories = DEFAULT_CATEGORIES;
+      categories = catData
+        .slice()
+        .sort((a, b) => {
+          const aNum = parseInt(String(a.id).replace(/[^0-9]/g, ''), 10) || 0;
+          const bNum = parseInt(String(b.id).replace(/[^0-9]/g, ''), 10) || 0;
+          return aNum - bNum;
+        })
+        .map(r => r.name);
     }
 
     // If no data exists, create default tasks
@@ -398,8 +420,12 @@ async function loadFromSupabase() {
       return true;
     }
 
-    // Data exists - use it
-    items = data;
+    // Data exists - use it (sorted by creation order, not DB storage order)
+    items = data.slice().sort((a, b) => {
+      const aNum = parseInt(String(a.id).replace(/[^0-9]/g, ''), 10) || 0;
+      const bNum = parseInt(String(b.id).replace(/[^0-9]/g, ''), 10) || 0;
+      return aNum - bNum;
+    });
     currentUser = localStorage.getItem('wedding-who') || '';
     whoSelect.value = currentUser;
 
@@ -458,6 +484,30 @@ function scheduleSave() {
 }
 
 // ============================================================
+//  SUPABASE — SAVE CATEGORIES
+// ============================================================
+
+async function saveCategoriesToSupabase(catList) {
+  try {
+    isSaving = true;
+    const { error: deleteError } = await supabaseClient.from('categories').delete().neq('id', '');
+    if (deleteError) throw deleteError;
+
+    if (catList.length > 0) {
+      const rows = catList.map((name, i) => ({ id: 'c' + i, name }));
+      const { error: insertError } = await supabaseClient.from('categories').insert(rows);
+      if (insertError) throw insertError;
+    }
+    return true;
+  } catch (e) {
+    console.error('❌ Category save failed:', e);
+    return false;
+  } finally {
+    isSaving = false;
+  }
+}
+
+// ============================================================
 //  SUPABASE — REAL-TIME SYNC
 // ============================================================
 
@@ -472,7 +522,20 @@ function setupRealtime() {
       },
       (payload) => {
         if (isSaving) return;
-        console.log('🔄 Realtime update:', payload);
+        console.log('🔄 Realtime update (tasks):', payload);
+        loadFromSupabase();
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'categories'
+      },
+      (payload) => {
+        if (isSaving) return;
+        console.log('🔄 Realtime update (categories):', payload);
         loadFromSupabase();
       }
     )
@@ -569,7 +632,7 @@ function render() {
       }
       categories = categories.map(c => c === oldName ? trimmed : c);
       items.forEach(i => { if (i.category === oldName) i.category = trimmed; });
-      localStorage.setItem('wedding-checklist-categories', JSON.stringify(categories));
+      saveCategoriesToSupabase(categories);
       populateCategorySelect();
       render();
       scheduleSave();
@@ -586,7 +649,7 @@ function render() {
       if (!confirm(msg)) return;
       categories = categories.filter(c => c !== cat);
       items = items.filter(i => i.category !== cat);
-      localStorage.setItem('wedding-checklist-categories', JSON.stringify(categories));
+      saveCategoriesToSupabase(categories);
       populateCategorySelect();
       render();
       scheduleSave();
@@ -636,7 +699,7 @@ addCategoryBtn.addEventListener('click', () => {
   }
   categories.push(name);
   newCategoryInput.value = '';
-  localStorage.setItem('wedding-checklist-categories', JSON.stringify(categories));
+  saveCategoriesToSupabase(categories);
   populateCategorySelect();
   newCategory.value = name;
   render();
